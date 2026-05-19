@@ -1,88 +1,43 @@
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build](https://github.com/SMBU-PolarBear-Robotics-Team/hik_camera_ros2_driver/actions/workflows/ci.yml/badge.svg)](https://github.com/SMBU-PolarBear-Robotics-Team/hik_camera_ros2_driver/actions/workflows/ci.yml)
+# 🚀 海康相机 ROS 2 驱动 (hik_camera_ros2_driver) 优化与升级说明
 
-# hik_camera_ros2_driver
+本项目基于原版的 ROS 2 海康相机驱动进行了深度重构与优化。主要解决了原版驱动在多设备部署时“依赖环境复杂”、“容易找不到相机”、“异常退出时引发节点崩溃”以及“编译构建失败”等痛点问题。
 
-## Overview
+以下是本次升级的核心改善项总结：
 
-The `hik_camera_ros2_driver` package provides a ROS 2 driver for controlling and interfacing with Hikvision cameras. It supports functionalities such as camera initialization, parameter configuration, and image publishing. This package is intended for applications requiring reliable and configurable image data acquisition in a ROS 2 environment.
+## 1. 彻底实现“绿色免安装” (Portable Driver)
+**🔴 原版痛点：**
+原版代码严重依赖海康 MVS 官方软件的全局安装路径（`/opt/MVS`）。换一台没有安装 MVS 客户端的电脑，或者在新开的终端中忘记手动执行 `export` 环境变量命令，节点就会因为底层找不到驱动而疯狂报错 `No camera found`。
 
-### Executables
+**🟢 优化措施：**
+* **本地化动态库闭环：** 将 MVS 底层通信所需的完整依赖（包括 `MvProducerGEV.cti` 核心网口发现驱动、GenICam 隐藏动态库组、以及负责图像像素转换的 `ThirdParty` 库集合）全部打包进代码工作空间的 `amd64` 目录下。
+* **Launch 文件动态注入：** 重写了 `hik_camera_launch.py`，利用 Python 在节点启动前自动解析工作空间的 `install/lib` 路径，并动态拼接到 `GENICAM_GENTL64_PATH` 和 `LD_LIBRARY_PATH` 环境变量中。
+* **💡 最终效果：** **即插即用**。只需执行标准的 `source install/setup.bash` 即可一键启动并连上相机，无需任何额外配置。
 
-The package includes the `hik_camera_node`, which manages the camera and publishes image data along with camera information to ROS 2 topics.
+## 2. 修复生命周期管理导致的节点崩溃 (Crash Fix)
+**🔴 原版痛点：**
+在原版 `hik_camera_node.cpp` 的构造函数中，如果相机未连接或网络配置不对导致 `initializeCamera()` 失败并陷入重试循环，此时用户按下 `Ctrl+C` 强行终止程序，代码会带着一个空的相机句柄（`nullptr`）继续往下执行 `declareParameters()`。这会导致底层向 ROS 2 核心抛出极其难看的越界异常（`InvalidParameterValueException`），节点以非正常的退出码（Exit code -6）死机崩溃。
 
-### Subscribed Topics
-
-None.
-
-### Published Topics
-
-- `<camera_topic>` (sensor_msgs/msg/Image)
-  - The image data captured by the Hikvision camera.
-
-- `<camera_topic>/camera_info` (sensor_msgs/msg/CameraInfo)
-  - Camera calibration information.
-
-### Parameters
-
-- `exposure_time` (double, default: `5000`)
-  - The camera exposure time in microseconds.
-
-- `gain` (double, default: `camera`)
-  - The gain setting for the camera.
-
-- `acquisition_frame_rate` (double, default: `165`)
-  - The acquisition frame rate in hz for the camera.
-
-- `pixel_format` (string, default: `RGB8Packed`)
-  - The pixel format for the image data. Supported values: `Mono8`, `Mono10`, `Mono12`, `RGB8Packed`, `BGR8Packed`, `YUV422_YUYV_Packed`, `YUV422Packed`, `BayerRG8`, `BayerRG10`, `BayerRG10Packed`, `BayerRG12`, `BayerRG12Packed`.
-
-- `adc_bit_depth` (string, default: `Bits_8`)
-  - The ADC bit depth for the camera. Supported values: `Bits_8`, `Bits_12`.
-
-- `use_sensor_data_qos` (bool, default: true)
-  - Whether to use the `sensor_data` QoS profile for image topic publication.
-
-- `camera_name` (string, default: `camera`)
-  - The name of the camera for identification purposes.
-
-- `frame_id` (string, default: `<camera_name>_optical_frame`)
-  - The frame_id assigned to the published image data.
-
-- `camera_topic` (string, default: `<camera_name>/image`)
-  - The topic name for publishing image and info data.
-
-- `camera_info_url` (string, default: `package://hik_camera_ros2_driver/config/camera_info.yaml`)
-  - The URL for the camera calibration information file.
-
-### Usage
-
-#### Installation
-
-To use this package, build it from source or include it in your ROS 2 workspace. Ensure that all dependencies are installed. You **don't** need to install the Hikvision camera SDK and include its libraries in your environment.
-
-```bash
-mkdir -p ~/ros_ws/src
-cd ~/ros_ws/src
+**🟢 优化措施：**
+引入了严格的**安全熔断机制**。
+```cpp
+// 优化后的构造函数逻辑
+if (!initializeCamera()) {
+  RCLCPP_ERROR(this->get_logger(), "Failed to initialize camera! Node will shut down safely.");
+  rclcpp::shutdown();
+  return;  // 拦截执行，安全退出
+}
+declareParameters();
+startCamera();
 ```
+* **💡 最终效果：** 当遇到设备离线、网络异常或用户主动打断（`Ctrl+C`）时，节点安全地释放资源并退出，提升了工程的健壮性。
 
-```bash
-git clone https://github.com/SMBU-PolarBear-Robotics-Team/hik_camera_ros2_driver.git
-```
+## 3. 补全图像格式转换核心库 (ThirdParty 补充)
+**🔴 原版痛点：**
+原版在提取动态库时，往往只提取了顶层的 `libMvCameraControl.so` 等几项，遗漏了深层依赖的 `ThirdParty` 目录。这导致相机在需要将底层的 Bayer 格式通过 CPU 转换为 ROS 2 标准的 `RGB8` 图像格式时，因缺失底层多媒体库（FFmpeg 相关的 `libavutil` 等）而转换失败或直接段错误。
 
-```bash
-cd ~/ros_ws
-rosdep install -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
-```
+**🟢 优化措施：**
+* 完整克隆并保留了 `ThirdParty` 目录结构，并在 `launch` 文件中将 `ThirdParty` 的路径一并加入了 `LD_LIBRARY_PATH` 环境变量监测树中。
+* **💡 最终效果：** 图像像素格式的转换（ConvertPixelType）稳定运行，彻底解锁了高帧率与多种像素格式的兼容性。
 
-```bash
-colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=Release
-```
+***
 
-#### Run
-
-You can use the provided launch file for starting the camera node with default or custom parameters:
-
-```bash
-ros2 launch hik_camera_ros2_driver hik_camera_launch.py
-```
