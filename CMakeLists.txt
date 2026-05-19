@@ -5,11 +5,7 @@ project(hik_camera_ros2_driver)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-## By adding -Wall and -Werror, the compiler does not ignore warnings anymore,
-## enforcing cleaner code.
 add_definitions(-Wall -Werror)
-
-## Export compile commands for clangd
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(ament_cmake_auto REQUIRED)
@@ -23,6 +19,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC hikSDK/include)
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
   target_link_directories(${PROJECT_NAME} PUBLIC hikSDK/lib/amd64)
+  # 这里负责把 amd64 文件夹里的 .cti 和 .so 拷贝到 ROS2 的工作空间内
   install(
     DIRECTORY hikSDK/lib/amd64/
     DESTINATION lib

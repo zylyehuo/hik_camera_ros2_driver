@@ -16,7 +16,14 @@ public:
   {
     RCLCPP_INFO(this->get_logger(), "Starting HikCameraRos2DriverNode!");
 
-    initializeCamera();
+    // ====== 核心修改：增加安全检查，初始化失败直接退出 ======
+    if (!initializeCamera()) {
+      RCLCPP_ERROR(this->get_logger(), "Failed to initialize camera! Node will shut down safely.");
+      rclcpp::shutdown();
+      return; 
+    }
+    // ========================================================
+
     declareParameters();
     startCamera();
 
@@ -59,7 +66,7 @@ private:
       }
     }
 
-    // ====== 序列号匹配逻辑 ======
+    // 序列号匹配逻辑
     std::string target_sn = this->declare_parameter("camera_sn", "");
     unsigned int target_index = 0;
 
@@ -85,14 +92,14 @@ private:
       }
 
       if (!found) {
-        RCLCPP_ERROR(this->get_logger(), "Target camera SN [%s] not found! Please check MVS.", target_sn.c_str());
-        return false; // 找不到指定SN的相机直接退出
+        RCLCPP_ERROR(this->get_logger(), "Target camera SN [%s] not found! Please check connection.", target_sn.c_str());
+        return false; 
       }
     } else {
       RCLCPP_INFO(this->get_logger(), "No 'camera_sn' specified in config. Defaulting to camera 0.");
     }
     
-    // 使用匹配到的索引创建句柄 (不再写死为0)
+    // 使用匹配到的索引创建句柄
     n_ret_ = MV_CC_CreateHandle(&camera_handle_, device_list.pDeviceInfo[target_index]);
     
     if (n_ret_ != MV_OK) {
@@ -114,12 +121,12 @@ private:
     }
 
     // Init convert param
-    image_msg_.data.reserve(img_info_.nHeightMax * img_info_.nWidthMax * 3);
+    image_msg_.data.resize(img_info_.nHeightMax * img_info_.nWidthMax * 3);
     convert_param_.nWidth = img_info_.nWidthValue;
     convert_param_.nHeight = img_info_.nHeightValue;
     convert_param_.enDstPixelType = PixelType_Gvsp_RGB8_Packed;
 
-    // ====== 网络包大小自动协商 (专门解决网口相机 80000007 丢包问题) ======
+    // 网络包大小自动协商 (解决网口相机 80000007 丢包问题)
     int nPacketSize = MV_CC_GetOptimalPacketSize(camera_handle_);
     if (nPacketSize > 0) {
         int status = MV_CC_SetIntValue(camera_handle_, "GevSCPSPacketSize", nPacketSize);
@@ -131,7 +138,6 @@ private:
     } else {
         RCLCPP_WARN(this->get_logger(), "Warning: Failed to get optimal packet size");
     }
-    // =======================================================================
 
     return true;
   }
@@ -173,17 +179,6 @@ private:
     RCLCPP_INFO(this->get_logger(), "Gain: %f", gain);
 
     int status;
-
-    // ADC Bit Depth
-    // param_desc.description = "ADC Bit Depth";
-    // param_desc.additional_constraints = "Supported values: Bits_8, Bits_12";
-    // std::string adc_bit_depth = this->declare_parameter("adc_bit_depth", "Bits_8", param_desc);
-    // status = MV_CC_SetEnumValueByString(camera_handle_, "ADCBitDepth", adc_bit_depth.c_str());
-    // if (status == MV_OK) {
-    //   RCLCPP_INFO(this->get_logger(), "ADC Bit Depth set to %s", adc_bit_depth.c_str());
-    // } else {
-    //   RCLCPP_ERROR(this->get_logger(), "Failed to set ADC Bit Depth, status = %d", status);
-    // }
 
     // Pixel format
     param_desc.description = "Pixel Format";
@@ -261,17 +256,15 @@ private:
         }
 
       } else {
-        // ====== 不要遇到超时就立刻重启数据流，忽略无数据警告并继续尝试 ======
-        if (n_ret_ == (int)0x80000007) { // MV_E_NODATA
+        if (n_ret_ == (int)0x80000007) { 
             RCLCPP_WARN(this->get_logger(), "Get buffer timeout (No Data). Waiting for frame...");
         } else {
             RCLCPP_WARN(this->get_logger(), "Get buffer failed with fatal error! nRet: [%x]", n_ret_);
             MV_CC_StopGrabbing(camera_handle_);
-            std::this_thread::sleep_for(std::chrono::milliseconds(500)); // 停顿一下再重启
+            std::this_thread::sleep_for(std::chrono::milliseconds(500)); 
             MV_CC_StartGrabbing(camera_handle_);
             fail_count_++;
         }
-        // =================================================================
       }
 
       if (fail_count_ > 5) {
