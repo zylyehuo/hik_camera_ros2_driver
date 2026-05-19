@@ -47,7 +47,12 @@ def generate_launch_description():
         name="hik_camera_ros2_driver",
         package="hik_camera_ros2_driver",
         executable="hik_camera_ros2_driver_node",
-        parameters=[params_file],
+        parameters=[
+            params_file,
+            # 添加下面这两行配置，强行禁用深度插件
+            {"image.compressedDepth.disable_pub": True},
+            {"front/image.compressedDepth.disable_pub": True} 
+        ],
         arguments=["--ros-args", "--log-level", log_level],
         output="screen",
     )
