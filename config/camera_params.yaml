@@ -1,15 +1,48 @@
 /hik_camera_ros2_driver:
   ros__parameters:
     camera_info_url: "package://hik_camera_ros2_driver/config/camera_info.yaml"
-    pixel_format: "BayerRG8"        # Recommended Option: "RGB8Packed", "BayerRG8"
-    adc_bit_depth: "Bits_8"         # If using "BayerRG8", <adc_bit_depth> must be set as "Bits_8"; otherwise, it can be "Bits_8" or "Bits_12"
     use_sensor_data_qos: true
     camera_name: "front"
-    # frame_id: "optical_frame"     # If not set, it will be set as <camera_name>_optical_frame
-    # camera_topic: "image"         # If not set, it will be set as <camera_name>/image
+    # frame_id: "front_optical_frame"
+    # camera_topic: "front/image"
 
-    camera_sn: "DA0434641" # "DA4714681"
+    # Strict serial-number selection. No non-matching camera is opened,
+    # configured, queried, or logged.
+    camera_sn: "DA4714681"
 
-    acquisition_frame_rate: 60.0   # Unit: Hz
-    exposure_time: 5000             # Unit: us
-    gain: 16.9                      # Range: 0.0 ~ 16.9, Unit: dB
+    pixel_format: "BayerRG8"
+    image_width: 1280
+    image_height: 720
+    acquisition_frame_rate: 10.0
+    exposure_time: 120
+    gain: 16.9
+
+    image_node_num: 8
+    frame_timeout_ms: 1000
+    startup_frame_timeout_ms: 3000
+    timeout_recovery_threshold: 3
+    reconnect_interval_ms: 2000
+    open_settle_ms: 500
+    enable_auto_reconnect: true
+    reuse_camera_profile_on_reconnect: true
+
+    # DA4714681 is used with a standard 1500-byte Ethernet MTU.
+    # Enforce and verify a 1500-byte GigE Vision packet before each
+    # StartGrabbing call. A required adjustment is logged at INFO level.
+    set_gige_packet_size_on_connect: true
+    gige_packet_size: 1500
+
+    # No additional pacing is required at 1280x720 BayerRG8 and 10 Hz once the
+    # packet size matches the host MTU. Zero also removes the v6 throughput loss.
+    gige_packet_delay: 0
+
+    # Keep bounded resend support for occasional packet loss, but do not repeat
+    # the excessive v6 retry workload when the physical link cannot deliver.
+    gige_enable_resend: true
+    gige_max_resend_percent: 20
+    gige_resend_timeout_ms: 50
+    gige_resend_retry_times: 5
+    gige_resend_interval_ms: 10
+
+    # Only report a summary if the SDK still detects packet loss.
+    packet_loss_summary_interval_sec: 5
