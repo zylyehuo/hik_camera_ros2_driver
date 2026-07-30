@@ -1,22 +1,76 @@
 /hik_camera_ros2_driver:
   ros__parameters:
     camera_info_url: "package://hik_camera_ros2_driver/config/camera_info.yaml"
-    use_sensor_data_qos: true
     camera_name: "front"
-    # frame_id: "front_optical_frame"
     # camera_topic: "front/image"
+    # frame_id: "front_optical_frame"
 
-    # Strict serial-number selection. No non-matching camera is opened,
-    # configured, queried, or logged.
-    camera_sn: "DA4714681"
+    # ================================================================
+    # 设备参数组 1（当前启用）
+    # ================================================================
+    camera_sn: "DA0434641"
+    pixel_format: ""
+    image_width: 812
+    image_height: 620
+    auto_adjust_resolution: true
+    strict_camera_profile: false
 
-    pixel_format: "BayerRG8"
-    image_width: 1280
-    image_height: 720
-    acquisition_frame_rate: 10.0
-    exposure_time: 120
-    gain: 16.9
+    # 可直接请求 20/25/30 Hz。驱动会读取相机实际 GevLinkSpeed 和
+    # PayloadSize；如果网口只协商到 100 Mbit/s，将自动限制到安全帧率，
+    # 避免持续丢包后 GetImageBuffer 超时。要实际达到 20/30 Hz，网口必须
+    # 正常协商为 1000 Mbit/s。
+    acquisition_frame_rate: 20.0
+    disable_exposure_auto: true
+    exposure_time: 50000.0
+    disable_gain_auto: true
+    gain: 23.0
+    use_sensor_data_qos: false
+    qos_reliability: "best_effort"
+    qos_depth: 5
 
+    # ================================================================
+    # 设备参数组 2（切换时注释上面参数，并取消下面对应参数的注释）
+    # ================================================================
+    # camera_sn: "DA4714681"
+    # pixel_format: "BayerRG8"
+    # image_width: 1280
+    # image_height: 720
+    # auto_adjust_resolution: false
+    # strict_camera_profile: false
+    # acquisition_frame_rate: 10.0
+    # disable_exposure_auto: true
+    # exposure_time: 120.0
+    # disable_gain_auto: true
+    # gain: 16.9
+    # use_sensor_data_qos: true
+    # qos_reliability: "best_effort"
+    # qos_depth: 5
+
+    # ================================================================
+    # 通用帧时序保护
+    # frame_rate：优先保证帧率，曝光过长时自动降低曝光。
+    # exposure：优先保证曝光，帧率过高时自动降低帧率。
+    # camera：不做交叉约束，完全交给相机固件处理。
+    # ================================================================
+    auto_adjust_frame_timing: true
+    frame_timing_priority: "frame_rate"
+    frame_timing_margin_us: 2000.0
+    # 相机 ResultingFrameRate 低于目标时，按相机实际读出时间迭代减小曝光。
+    frame_timing_result_tolerance_hz: 0.5
+    frame_timing_refine_iterations: 3
+
+    # ================================================================
+    # GigE 实际链路带宽保护（通用参数，不绑定具体设备）
+    # ================================================================
+    auto_limit_frame_rate_by_link: true
+    # 只使用链路额定带宽的 70%，为协议开销、系统调度和重传留余量。
+    gige_link_utilization_limit: 0.70
+    # 低于此链路速率时输出明确警告；不会按型号判断。
+    gige_expected_link_speed_mbps: 1000
+
+    # ================================================================
+    # 通用运行参数
+    # ================================================================
     image_node_num: 8
     frame_timeout_ms: 1000
     startup_frame_timeout_ms: 3000
@@ -26,23 +80,13 @@
     enable_auto_reconnect: true
     reuse_camera_profile_on_reconnect: true
 
-    # DA4714681 is used with a standard 1500-byte Ethernet MTU.
-    # Enforce and verify a 1500-byte GigE Vision packet before each
-    # StartGrabbing call. A required adjustment is logged at INFO level.
     set_gige_packet_size_on_connect: true
     gige_packet_size: 1500
-
-    # No additional pacing is required at 1280x720 BayerRG8 and 10 Hz once the
-    # packet size matches the host MTU. Zero also removes the v6 throughput loss.
-    gige_packet_delay: 0
-
-    # Keep bounded resend support for occasional packet loss, but do not repeat
-    # the excessive v6 retry workload when the physical link cannot deliver.
+    # 小包间隔用于降低瞬时突发；不会改变链路总带宽上限。
+    gige_packet_delay: 400
     gige_enable_resend: true
     gige_max_resend_percent: 20
     gige_resend_timeout_ms: 50
     gige_resend_retry_times: 5
     gige_resend_interval_ms: 10
-
-    # Only report a summary if the SDK still detects packet loss.
     packet_loss_summary_interval_sec: 5
